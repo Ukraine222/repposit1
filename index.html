@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Neon Arena — Online 2D (Rooms + Passwords)</title>
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+  <!-- PeerJS for WebRTC P2P networking (cloud signalling) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    :root{
+      --bg: #0a0b10;
+      --panel: #121423;
+      --accent: #72f5ff;
+      --accent2: #8a73ff;
+      --good: #29e37a;
+      --bad: #ff4d6d;
+      --text: #e8ebff;
+      --muted: #a9b0d9;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;}
+    body{
+      margin:0; background: radial-gradient(1200px 800px at 20% 10%, rgba(138,115,255,.15), transparent),
+                         radial-gradient(1000px 700px at 80% 90%, rgba(114,245,255,.12), transparent),
+                         var(--bg);
+      font-family:'Montserrat',system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial;
+      color:var(--text);
+      overflow:hidden;
+    }
+    .wrap{position:fixed; inset:0; display:grid; grid-template-rows:auto 1fr auto;}
+    header{
+      display:flex; align-items:center; gap:12px; padding:14px 18px;
+      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0));
+      backdrop-filter: blur(6px);
+    }
+    .logo{font-weight:800; letter-spacing:.5px; font-size:20px;}
+    .logo .diamond{display:inline-block; width:16px; height:16px; border-radius:4px;
+      background: conic-gradient(from 210deg, var(--accent), var(--accent2), var(--accent), var(--accent2));
+      box-shadow:0 0 18px rgba(138,115,255,.6), 0 0 24px rgba(114,245,255,.4);
+      margin-right:8px; transform:skewX(-15deg) rotate(45deg);
+    }
+    .r{margin-left:auto; display:flex; gap:8px; align-items:center}
+    .btn{appearance:none; border:none; padding:10px 14px; border-radius:12px; font-weight:700; color:#0b0f1a; cursor:pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 6px 16px rgba(138,115,255,.35), inset 0 0 0 1px rgba(255,255,255,.25);
+      transition: transform .1s ease, filter .2s ease;}
+    .btn:hover{transform:translateY(-1px); filter:saturate(1.1)}
+    .btn:active{transform:translateY(1px)}
+    .btn.ghost{background:#1a1e34; color:var(--text); box-shadow: inset 0 0 0 1px rgba(139,144,190,.3);}
+    .btn.small{padding:6px 10px; border-radius:10px; font-size:12px}
+
+    .panels{display:grid; grid-template-columns: 330px 1fr; gap:16px; padding:16px;}
+    .panel{background: linear-gradient(185deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); border:1px solid rgba(180,188,255,.15);
+      border-radius:20px; padding:14px; box-shadow:0 12px 40px rgba(0,0,0,.35), inset 0 0 40px rgba(114,245,255,.03)}
+    .panel h3{margin:6px 0 12px; font-size:14px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted)}
+    .row{display:flex; gap:10px; align-items:center; margin-bottom:10px}
+    label{font-size:12px; color:var(--muted); width:92px}
+    input, select{width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(170,180,240,.22); background:#0f1324; color:var(--text); outline:none}
+    .sep{height:1px; background:linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent); margin:12px 0}
+
+    #game{width:100%; height:calc(100vh - 140px); border-radius:20px; background:#05060b; display:block; box-shadow: inset 0 0 60px rgba(138,115,255,.2), inset 0 0 120px rgba(114,245,255,.1)}
+    .hud{position:fixed; left:16px; bottom:16px; display:flex; gap:10px; align-items:center}
+    .chip{background:#10142a; border:1px solid rgba(170,180,240,.2); padding:8px 12px; border-radius:12px; color:var(--muted); font-size:13px}
+    .notif{position:fixed; right:16px; bottom:16px; display:grid; gap:10px}
+    .toast{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); border:1px solid rgba(180,188,255,.2); padding:10px 12px; border-radius:12px; font-size:13px}
+
+    .store{display:grid; grid-template-columns:repeat(3, 1fr); gap:10px}
+    .card{padding:10px; background:#0e1222; border:1px solid rgba(170,180,240,.2); border-radius:14px}
+    .card .name{font-weight:700}
+    .card .price{color:var(--muted); font-size:12px}
+    .card button{margin-top:8px}
+
+    .pill{display:inline-flex; align-items:center; gap:8px; font-size:12px; padding:6px 10px; border-radius:999px; background:#10142a; border:1px solid rgba(170,180,240,.25)}
+    .dot{width:8px; height:8px; border-radius:999px; background:var(--bad)}
+    .dot.ok{background:var(--good)}
+
+    .footer{padding:10px 16px; font-size:12px; color:var(--muted)}
+    .kbd{font-weight:700; background:#10142a; border:1px solid rgba(170,180,240,.25); padding:3px 7px; border-radius:8px}
+    .link{color:var(--accent)}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo"><span class="diamond"></span>Neon Arena</div>
+      <div class="pill" id="netIndicator"><span class="dot" id="netDot"></span><span id="netLabel">Офлайн</span></div>
+      <div class="r">
+        <button class="btn small ghost" id="btnHow">Управление</button>
+        <button class="btn small ghost" id="btnCopyInvite" title="Скопировать приглашение">Ссылка-приглашение</button>
+        <button class="btn small" id="btnFullscreen">На весь экран</button>
+      </div>
+    </header>
+
+    <div class="panels">
+      <div class="panel" id="lobbyPanel">
+        <h3>ЛОББИ</h3>
+        <div class="row"><label>Ник</label><input id="nick" maxlength="14" placeholder="Игрок"/></div>
+        <div class="row"><label>Скин</label>
+          <select id="skin">
+            <option value="neon">Neon</option>
+            <option value="crimson">Crimson</option>
+            <option value="jade">Jade</option>
+            <option value="sunset">Sunset</option>
+            <option value="ghost">Ghost</option>
+          </select>
+        </div>
+        <div class="row"><label>Комната</label><input id="room" placeholder="например 4287"/></div>
+        <div class="row"><label>Пароль</label><input id="pwd" placeholder="(если есть)"/></div>
+        <div class="row" style="gap:6px">
+          <button class="btn" id="createBtn">Создать сервер</button>
+          <button class="btn ghost" id="joinBtn">Войти</button>
+        </div>
+        <div class="sep"></div>
+
+        <h3>МАГАЗИН</h3>
+        <div class="store" id="store"></div>
+        <div class="sep"></div>
+
+        <h3>ПРОФИЛЬ</h3>
+        <div class="row"><label>Монеты</label><div class="chip" id="coins">0</div></div>
+        <div class="row"><label>Ваш ID</label><div class="chip" id="myId">—</div></div>
+        <div class="row"><label>Хост?</label><div class="chip" id="isHost">нет</div></div>
+        <div class="row"><label>Игроков</label><div class="chip" id="players">0</div></div>
+      </div>
+
+      <div class="panel" id="gamePanel">
+        <canvas id="game"></canvas>
+      </div>
+    </div>
+
+    <div class="hud">
+      <div class="chip">WASD/Стрелки — движение • <span class="kbd">Space</span> — рывок • Мышь — прицел/стрельба • <span class="kbd">1–4</span> — скины</div>
+    </div>
+    <div class="notif" id="notif"></div>
+
+    <div class="footer">Онлайн реализован на P2P WebRTC через PeerJS (облачный сигнальный сервер). Для интернета страница должна открываться с <b>https://</b> (или с <b>localhost</b>). Ничего устанавливать не нужно.</div>
+  </div>
+
+<script>
+(() => {
+  // ====== UTIL ======
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rand = (a,b)=>Math.random()*(b-a)+a;
+  const now = () => performance.now();
+  const toast = (t, kind='') => {
+    const el = document.createElement('div'); el.className='toast'; el.textContent=t; if(kind==='bad') el.style.borderColor='rgba(255,77,109,.5)';
+    $('#notif').appendChild(el); setTimeout(()=>{el.remove()}, 3400);
+  };
+  const save = (k,v)=>localStorage.setItem('na_'+k, JSON.stringify(v));
+  const load = (k,d)=>{try{const v=JSON.parse(localStorage.getItem('na_'+k)); return v==null?d:v;}catch{ return d; }};
+
+  // ====== STATE ======
+  const state = {
+    coins: load('coins', 100),
+    skin: load('skin','neon'),
+    nick: load('nick', 'Игрок'),
+    myId: '—',
+    isHost: false,
+    players: {}, // id -> player
+    bullets: [],
+    inputs: {}, // id -> input state
+    lastNet: 0,
+    room: '',
+    pwd: '',
+    netUp: false,
+  };
+
+  // ====== UI BINDINGS ======
+  $('#coins').textContent = state.coins;
+  $('#skin').value = state.skin;
+  $('#nick').value = state.nick;
+  $('#btnFullscreen').onclick = () => {
+    const el = document.documentElement; if(!document.fullscreenElement) el.requestFullscreen().catch(()=>{}); else document.exitFullscreen();
+  };
+  $('#btnHow').onclick = ()=> toast('WASD/Стрелки — движение, мышь — стрельба, Space — рывок');
+  $('#btnCopyInvite').onclick = ()=>{
+    if(!state.room) return toast('Сначала создайте или введите комнату');
+    const url = new URL(location.href);
+    url.searchParams.set('room', state.room);
+    url.searchParams.set('pwd', state.pwd||'');
+    navigator.clipboard.writeText(url.toString());
+    toast('Ссылка скопирована. Отправьте другу!');
+  };
+
+  // Persist profile fields
+  $('#skin').addEventListener('change', e=>{state.skin=e.target.value; save('skin', state.skin)});
+  $('#nick').addEventListener('input', e=>{state.nick=e.target.value; save('nick', state.nick)});
+
+  // URL join helper
+  const params = new URLSearchParams(location.search);
+  if(params.get('room')) $('#room').value = params.get('room');
+  if(params.get('pwd')) $('#pwd').value = params.get('pwd');
+
+  // ====== STORE ======
+  const SKINS = [
+    {id:'neon', name:'Neon', price:0, paint:['#72f5ff','#8a73ff']},
+    {id:'crimson', name:'Crimson', price:60, paint:['#ff4d6d','#ff9aa2']},
+    {id:'jade', name:'Jade', price:80, paint:['#29e37a','#b7ffbf']},
+    {id:'sunset', name:'Sunset', price:120, paint:['#ffb648','#ff6b6b']},
+    {id:'ghost', name:'Ghost', price:160, paint:['#e8ebff','#8ea3ff']},
+  ];
+  const owned = new Set(load('owned', ['neon']));
+  function renderStore(){
+    const el = $('#store'); el.innerHTML='';
+    SKINS.forEach(s=>{
+      const card = document.createElement('div'); card.className='card';
+      card.innerHTML = `<div class="name">${s.name}</div><div class="price">${s.price? s.price+' монет' : 'Бесплатно'}</div>`;
+      const btn = document.createElement('button'); btn.className='btn small';
+      const have = owned.has(s.id);
+      btn.textContent = have? (state.skin===s.id? 'Используется' : 'Надеть') : `Купить`;
+      btn.disabled = state.skin===s.id || (!have && state.coins < s.price);
+      btn.onclick = ()=>{
+        if(owned.has(s.id)){
+          state.skin = s.id; save('skin', s.id); renderStore();
+        } else if(state.coins >= s.price){
+          state.coins -= s.price; $('#coins').textContent = state.coins; save('coins', state.coins);
+          owned.add(s.id); save('owned', Array.from(owned)); renderStore(); toast(`Куплено: ${s.name}!`);
+        }
+      };
+      card.appendChild(btn); el.appendChild(card);
+    });
+  }
+  renderStore();
+
+  // ====== NETWORK (PeerJS cloud) ======
+  let peer = null;               // my PeerJS instance
+  let hostId = null;             // id of host (room id)
+  const conns = new Map();       // peerId -> DataConnection (host->clients)
+  let hostConn = null;           // client->host connection
+  let tickTimer = null;          // authoritative simulation timer (host)
+
+  function peerOpts(){
+    return {
+      host: '0.peerjs.com',
+      port: 443,
+      secure: true,
+      path: '/peerjs',
+      debug: 0,
+      config: { iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
+      ]}
+    };
+  }
+
+  function setNet(up){
+    state.netUp = up; $('#netDot').classList.toggle('ok', !!up); $('#netLabel').textContent = up? 'Онлайн' : 'Офлайн';
+  }
+
+  function createPeer(fixedId){
+    if(peer) try{peer.destroy()}catch{}
+    return new Peer(fixedId || undefined, peerOpts());
+  }
+
+  function broadcast(msg){
+    conns.forEach(c=>{ try{ c.open && c.send(msg); }catch{} });
+  }
+
+  function pack(){
+    // Minimal authoritative snapshot
+    const players = {};
+    for(const [id,p] of Object.entries(state.players)){
+      players[id] = {x:p.x,y:p.y, vx:p.vx, vy:p.vy, a:p.a, hp:p.hp, nick:p.nick, skin:p.skin, dash:p.dashCd};
+    }
+    return {t: 'snap', players, bullets: state.bullets};
+  }
+
+  function spawnPlayer(id, info){
+    state.players[id] = {
+      id,
+      nick: info?.nick||'Игрок',
+      skin: info?.skin||'neon',
+      x: rand(200, 1400), y: rand(200, 700), vx:0, vy:0, a:0,
+      hp: 100, dashCd: 0, fireCd: 0, score:0
+    };
+  }
+
+  function removePlayer(id){ delete state.players[id]; state.inputs[id] && delete state.inputs[id]; }
+
+  function startHost(room, pwd){
+    state.isHost = true; hostId = 'room-'+room; state.room = room; state.pwd = pwd||''; save('room', room);
+    $('#isHost').textContent = 'да'; $('#myId').textContent = '(host) '+hostId; $('#players').textContent = Object.keys(state.players).length;
+    peer = createPeer(hostId);
+    peer.on('open', id=>{ setNet(true); toast('Сервер запущен: '+room); updateInviteLink(); });
+    peer.on('connection', conn=>{
+      conn.on('data', msg=>{
+        if(msg?.t==='join'){
+          if((state.pwd||'') !== (msg.pwd||'')) { conn.send({t:'deny', reason:'Неверный пароль'}); setTimeout(()=>conn.close(), 200); return; }
+          conns.set(conn.peer, conn);
+          spawnPlayer(conn.peer, {nick:msg.nick, skin:msg.skin});
+          state.inputs[conn.peer] = {up:0,down:0,left:0,right:0, mx:0,my:0, fire:0, dash:0};
+          conn.send({t:'welcome', host:hostId});
+          broadcast({t:'event', text:`${msg.nick} зашел`});
+          $('#players').textContent = Object.keys(state.players).length;
+        } else if(msg?.t==='inp' && state.inputs[conn.peer]){
+          state.inputs[conn.peer] = msg.data;
+        }
+      });
+      conn.on('close', ()=>{ removePlayer(conn.peer); conns.delete(conn.peer); $('#players').textContent = Object.keys(state.players).length; broadcast({t:'event', text:'Игрок вышел'}); });
+    });
+    peer.on('close', ()=> setNet(false));
+    peer.on('error', e=>{ console.warn(e); toast('Ошибка сети (host): '+e.type, 'bad'); });
+
+    // add host self
+    spawnPlayer('host', {nick: state.nick+' (H)', skin: state.skin});
+    state.inputs['host'] = {up:0,down:0,left:0,right:0, mx:0,my:0, fire:0, dash:0};
+
+    // Authoritative tick
+    if(tickTimer) clearInterval(tickTimer);
+    tickTimer = setInterval(()=>{
+      sim(1/60);
+      const snap = pack();
+      broadcast(snap);
+    }, 1000/20); // 20 Hz broadcast
+  }
+
+  function joinHost(room, pwd){
+    state.isHost = false; hostId = 'room-'+room; state.room = room; state.pwd = pwd||''; save('room', room);
+    $('#isHost').textContent = 'нет';
+    peer = createPeer();
+    peer.on('open', id=>{ state.myId = id; $('#myId').textContent = id; setNet(true);
+      hostConn = peer.connect(hostId, {reliable:true});
+      hostConn.on('open', ()=>{
+        hostConn.send({t:'join', nick: state.nick, skin: state.skin, pwd: state.pwd});
+      });
+      hostConn.on('data', msg=>{
+        if(msg?.t==='deny'){ toast('Доступ запрещен: '+(msg.reason||'нет'), 'bad'); try{hostConn.close()}catch{} }
+        if(msg?.t==='welcome'){ toast('Подключено к серверу'); }
+        if(msg?.t==='event'){ toast(msg.text); }
+        if(msg?.t==='snap'){
+          applySnapshot(msg);
+        }
+      });
+      hostConn.on('close', ()=>{ setNet(false); toast('Связь с хостом потеряна','bad'); });
+    });
+    peer.on('error', e=>{ console.warn(e); toast('Ошибка сети (client): '+e.type,'bad'); });
+  }
+
+  function updateInviteLink(){ $('#players').textContent = Object.keys(state.players).length; state.myId = hostId; }
+
+  // ====== INPUT ======
+  const input = {up:0,down:0,left:0,right:0, mx:0,my:0, fire:0, dash:0};
+  const keys = {};
+  window.addEventListener('keydown', e=>{ keys[e.code]=true; });
+  window.addEventListener('keyup', e=>{ keys[e.code]=false; });
+  window.addEventListener('mousemove', e=>{
+    const r = canvas.getBoundingClientRect(); input.mx = e.clientX - r.left; input.my = e.clientY - r.top;
+  });
+  window.addEventListener('mousedown', ()=> input.fire = 1);
+  window.addEventListener('mouseup', ()=> input.fire = 0);
+
+  function updateInput(){
+    input.up = keys['KeyW']||keys['ArrowUp']?1:0;
+    input.down = keys['KeyS']||keys['ArrowDown']?1:0;
+    input.left = keys['KeyA']||keys['ArrowLeft']?1:0;
+    input.right = keys['KeyD']||keys['ArrowRight']?1:0;
+    if(keys['Space']) { input.dash = 1; } else input.dash = 0;
+
+    // Quick skin switch
+    if(keys['Digit1']) { state.skin='neon'; save('skin',state.skin); }
+    if(keys['Digit2']) { if(owned.has('crimson')) { state.skin='crimson'; save('skin',state.skin); }}
+    if(keys['Digit3']) { if(owned.has('jade')) { state.skin='jade'; save('skin',state.skin); }}
+    if(keys['Digit4']) { if(owned.has('sunset')) { state.skin='sunset'; save('skin',state.skin); }}
+  }
+
+  // ====== GAME WORLD ======
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  function resize(){ canvas.width = document.getElementById('gamePanel').clientWidth - 4; canvas.height = document.getElementById('gamePanel').clientHeight - 4; }
+  window.addEventListener('resize', resize); resize();
+
+  const ARENA = { w: 1800, h: 1000 };
+  const WALLS = [ // decorative + collision rectangles
+    {x:100,y:100,w:1600,h:40}, {x:100,y:860,w:1600,h:40}, {x:100,y:140,w:40,h:760}, {x:1660,y:140,w:40,h:760},
+    {x:600,y:260,w:60,h:480}, {x:1140,y:260,w:60,h:480}, {x:880,y:220,w:40,h:140}, {x:880,y:700,w:40,h:140}
+  ];
+
+  function skinPaint(s){
+    const sdef = SKINS.find(x=>x.id===s)||SKINS[0]; return sdef.paint;
+  }
+
+  function applySnapshot(snap){
+    state.bullets = snap.bullets || [];
+    const me = state.isHost? state.players['host'] : state.players[state.myId];
+    state.players = {};
+    for(const [id,p] of Object.entries(snap.players)){
+      state.players[id] = {...p};
+    }
+    if(!state.isHost && me){ // keep my view target smoothing
+      // ok
+    }
+    $('#players').textContent = Object.keys(state.players).length;
+  }
+
+  function sim(dt){
+    // Host authoritative simulation
+    // Merge inputs
+    for(const [id,p] of Object.entries(state.players)){
+      const inp = state.inputs[id] || input; // host uses local input
+      const spd = 260; const acc = 2000; const frc = 8; const dashForce = 700; const dashCd = 0.7;
+      let ax = (inp.right - inp.left)*acc;
+      let ay = (inp.down - inp.up)*acc;
+      p.vx += ax*dt; p.vy += ay*dt;
+      p.vx *= Math.exp(-frc*dt); p.vy *= Math.exp(-frc*dt);
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      p.x = clamp(p.x, 140, ARENA.w-140); p.y = clamp(p.y, 140, ARENA.h-140);
+      p.a = Math.atan2(inp.my - (p.y - cam.y), inp.mx - (p.x - cam.x));
+      p.dashCd = Math.max(0, p.dashCd - dt);
+      p.fireCd = Math.max(0, p.fireCd - dt);
+      if(inp.dash && p.dashCd<=0){ p.vx += Math.cos(p.a)*dashForce; p.vy += Math.sin(p.a)*dashForce; p.dashCd = dashCd; fxDash(p.x,p.y); }
+      if(inp.fire && p.fireCd<=0){ fireBullet(p); p.fireCd = 0.18; }
+    }
+
+    // Bullets
+    for(const b of state.bullets){ b.x += b.vx*dt; b.y += b.vy*dt; b.t -= dt; }
+    state.bullets = state.bullets.filter(b=> b.t>0 && b.x>60 && b.y>60 && b.x<ARENA.w-60 && b.y<ARENA.h-60);
+
+    // Collisions bullets vs players
+    for(const b of state.bullets){
+      for(const [id,p] of Object.entries(state.players)){
+        if(id===b.owner) continue; const dx=b.x-p.x, dy=b.y-p.y; if(dx*dx+dy*dy<28*28){
+          p.hp -= 20; b.t = -1; fxHit(p.x,p.y);
+          if(p.hp<=0){ fxBoom(p.x,p.y); p.hp=100; p.x=rand(200,1600); p.y=rand(200,800); const killer = state.players[b.owner]; if(killer) killer.score=(killer.score||0)+1; }
+        }
+      }
+    }
+
+    // Walls collide (simple)
+    for(const p of Object.values(state.players)) collideRect(p);
+  }
+
+  function collideRect(p){
+    const r = 18;
+    for(const w of WALLS){
+      const nx = clamp(p.x, w.x, w.x+w.w), ny = clamp(p.y, w.y, w.y+w.h);
+      const dx = p.x - nx, dy = p.y - ny; const d2 = dx*dx+dy*dy;
+      if(d2 < r*r){ const d = Math.sqrt(d2)||1; const ux=dx/d, uy=dy/d; const pen = r-d; p.x+=ux*pen; p.y+=uy*pen; p.vx*=0.2; p.vy*=0.2; }
+    }
+  }
+
+  function fireBullet(p){
+    const spd = 700; state.bullets.push({x:p.x+Math.cos(p.a)*22, y:p.y+Math.sin(p.a)*22, vx:Math.cos(p.a)*spd, vy:Math.sin(p.a)*spd, t:1.6, owner:p.id}); fxMuzzle(p.x,p.y);
+  }
+
+  // ====== FX ======
+  const fx = [];
+  function fxPush(o){ fx.push(o); }
+  function fxMuzzle(x,y){ fxPush({t:'m', x, y, a:rand(0,6.28), s:1, life:0.15}); }
+  function fxHit(x,y){ for(let i=0;i<6;i++) fxPush({t:'p', x, y, vx:rand(-120,120), vy:rand(-120,120), life:0.4}); }
+  function fxBoom(x,y){ for(let i=0;i<26;i++) fxPush({t:'p', x, y, vx:rand(-300,300), vy:rand(-300,300), life:0.9}); }
+  function fxDash(x,y){ for(let i=0;i<12;i++) fxPush({t:'p', x, y, vx:rand(-240,240), vy:rand(-240,240), life:0.35}); }
+
+  // ====== CAMERA ======
+  const cam = {x:0, y:0};
+  function camUpdate(me){
+    const tx = clamp(me.x - canvas.width/2, 0, ARENA.w - canvas.width);
+    const ty = clamp(me.y - canvas.height/2, 0, ARENA.h - canvas.height);
+    cam.x += (tx - cam.x) * 0.08; cam.y += (ty - cam.y) * 0.08;
+  }
+
+  // ====== RENDER ======
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // bg grid
+    ctx.save(); ctx.translate(-cam.x*0.5, -cam.y*0.5);
+    ctx.globalAlpha=0.2; for(let i=-2000;i<3000;i+=40){ line(i,-2000,i,3000); line(-2000,i,3000,i);} ctx.restore();
+
+    ctx.save(); ctx.translate(-cam.x, -cam.y);
+
+    // arena border glow
+    ctx.fillStyle = '#0b0e18'; ctx.fillRect(0,0,ARENA.w,ARENA.h);
+    ctx.strokeStyle = 'rgba(136,150,255,.5)'; ctx.lineWidth=8; roundedRect(80,80,ARENA.w-160,ARENA.h-160,26,true);
+
+    // walls
+    ctx.fillStyle = 'rgba(120,150,255,.15)';
+    for(const w of WALLS){ roundedRect(w.x, w.y, w.w, w.h, 10, false); }
+
+    // bullets
+    for(const b of state.bullets){
+      ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,240,180,.9)'; ctx.fill();
+      // trail
+      ctx.globalAlpha=0.4; ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x-b.vx*0.03, b.y-b.vy*0.03); ctx.strokeStyle='#ffe6a8'; ctx.lineWidth=3; ctx.stroke(); ctx.globalAlpha=1;
+    }
+
+    // players
+    for(const [id,p] of Object.entries(state.players)){
+      const [c1,c2]=skinPaint(p.skin);
+      const r=18;
+      // body
+      const grad = ctx.createRadialGradient(p.x-6, p.y-6, 6, p.x, p.y, r+18); grad.addColorStop(0,c1); grad.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(p.x,p.y,r+12,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fillStyle=c1; ctx.fill();
+      // gun
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.a);
+      ctx.fillStyle=c2; ctx.fillRect(10,-4,18,8); ctx.restore();
+      // nick + hp
+      ctx.font = '12px Montserrat'; ctx.textAlign='center'; ctx.fillStyle='#cfd6ff'; ctx.fillText(p.nick, p.x, p.y-28);
+      // hp bar
+      ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(p.x-22, p.y+22, 44, 6);
+      ctx.fillStyle='#59ffa1'; ctx.fillRect(p.x-22, p.y+22, clamp(p.hp/100,0,1)*44, 6);
+      // score chip
+      ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(p.x-14, p.y+32, 28, 14); ctx.fillStyle='#fff'; ctx.font='10px Montserrat'; ctx.fillText(p.score||0, p.x, p.y+43);
+    }
+
+    // FX
+    for(const e of fx){
+      if(e.t==='m'){ ctx.save(); ctx.globalAlpha=e.life/0.15; ctx.translate(e.x,e.y); ctx.rotate(e.a); ctx.fillStyle='rgba(255,240,180,.9)'; ctx.fillRect(10,-2,16,4); ctx.restore(); }
+      if(e.t==='p'){ ctx.globalAlpha = clamp(e.life,0,1); ctx.fillStyle='rgba(255,150,200,.8)'; ctx.beginPath(); ctx.arc(e.x,e.y, 3, 0, Math.PI*2); ctx.fill(); }
+    }
+    ctx.globalAlpha=1;
+
+    ctx.restore();
+
+    // Minimap
+    const mw=220,mh=120; ctx.globalAlpha=0.9; ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(canvas.width-mw-16, 16, mw, mh);
+    ctx.strokeStyle='rgba(255,255,255,.2)'; ctx.strokeRect(canvas.width-mw-16, 16, mw, mh);
+    for(const [id,p] of Object.entries(state.players)){
+      const x = (p.x/ARENA.w)*mw + canvas.width-mw-16; const y = (p.y/ARENA.h)*mh + 16; ctx.fillStyle=id==='host'?'#72f5ff':'#ffb648'; ctx.fillRect(x-2,y-2,4,4);
+    }
+
+    // FX update
+    for(const e of fx){ if(e.t==='p'){ e.x+=e.vx*dt; e.y+=e.vy*dt; e.life-=dt; } if(e.t==='m'){ e.life-=dt; } }
+    for(let i=fx.length-1;i>=0;i--) if(fx[i].life<=0) fx.splice(i,1);
+  }
+
+  function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+  function roundedRect(x,y,w,h,r,stroke){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); if(stroke) ctx.stroke(); else ctx.fill(); }
+
+  // ====== MAIN LOOP ======
+  let last = now(); let dt = 0; function loop(){ const t=now(); dt = Math.min(0.033, (t-last)/1000); last=t; updateInput();
+    if(state.isHost) {
+      state.inputs['host'] = {...input};
+      // host sim runs in interval; here only render immediate view from current state
+    } else {
+      // client sends input to host
+      if(hostConn && hostConn.open){ hostConn.send({t:'inp', data: {...input}}); }
+    }
+
+    // camera follows my actor
+    const me = state.isHost? state.players['host'] : state.players[state.myId]; if(me) camUpdate(me);
+
+    draw(); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ====== LOBBY EVENTS ======
+  $('#createBtn').onclick = ()=>{
+    const nick = ($('#nick').value||'Игрок').slice(0,14); const skin = $('#skin').value; const room = ($('#room').value||'').trim() || Math.floor(Math.random()*9000+1000).toString(); const pwd = ($('#pwd').value||'').trim();
+    state.nick = nick; state.skin = skin; state.room = room; state.pwd = pwd; save('nick', nick); save('skin', skin);
+    startHost(room, pwd);
+  };
+
+  $('#joinBtn').onclick = ()=>{
+    const nick = ($('#nick').value||'Игрок').slice(0,14); const skin = $('#skin').value; const room = ($('#room').value||'').trim(); const pwd = ($('#pwd').value||'').trim();
+    if(!room) { toast('Введите код комнаты','bad'); return; }
+    state.nick = nick; state.skin = skin; state.room = room; state.pwd = pwd; save('nick', nick); save('skin', skin);
+    joinHost(room, pwd);
+  };
+
+  // Network indicator pulse
+  setInterval(()=>{ $('#netLabel').style.opacity = (Date.now()%1000<500)?0.9:1; }, 500);
+
+})();
+</script>
+</body>
+</html>
